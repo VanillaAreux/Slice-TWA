@@ -1,0 +1,88 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: SliceTWA
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip project
+        working-directory: .
+        run: unzip -oq SliceTWA.zip
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Ensure Android platform 34
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Prepare signing key
+        id: key
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p out
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > release.keystore
+            PASS="$KS_PASS"
+          else
+            PASS=$(openssl rand -hex 12)
+            keytool -genkeypair -keystore release.keystore -alias slice \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$PASS" -keypass "$PASS" \
+              -dname "CN=Slice, O=JOR, C=US"
+            cp release.keystore out/release.keystore
+            echo "$PASS" > out/keystore-password.txt
+          fi
+          echo "::add-mask::$PASS"
+          echo "pass=$PASS" >> "$GITHUB_OUTPUT"
+          FP=$(keytool -list -v -keystore release.keystore -alias slice -storepass "$PASS" | grep 'SHA256:' | sed 's/.*SHA256: //')
+          echo "fp=$FP" >> "$GITHUB_OUTPUT"
+          printf '[{\n  "relation": ["delegate_permission/common.handle_all_urls"],\n  "target": {\n    "namespace": "android_app",\n    "package_name": "com.jor.slice.twa",\n    "sha256_cert_fingerprints": ["%s"]\n  }\n}]\n' "$FP" > out/assetlinks.json
+          echo "SHA256: $FP" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Insert fingerprint into app
+        run: sed -i "s/REPLACE_WITH_YOUR_SHA256_FINGERPRINT/${{ steps.key.outputs.fp }}/" app/src/main/res/values/asset_statements.xml
+
+      - name: Build release APK
+        run: gradle assembleRelease --no-daemon
+
+      - name: Align and sign
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          "$BT/apksigner" sign --ks release.keystore --ks-key-alias slice \
+            --ks-pass "pass:${{ steps.key.outputs.pass }}" --out out/Slice.apk aligned.apk
+          "$BT/apksigner" verify out/Slice.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Slice-apk
+          path: SliceTWA/out/Slice.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assetlinks
+          path: SliceTWA/out/assetlinks.json
+
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('SliceTWA/out/keystore-password.txt') != ''
+        with:
+          name: signing-keys
+          path: |
+            SliceTWA/out/release.keystore
+            SliceTWA/out/keystore-password.txt
