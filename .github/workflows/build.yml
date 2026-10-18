@@ -9,7 +9,7 @@ defaults:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +59,18 @@ jobs:
         run: sed -i "s/REPLACE_WITH_YOUR_SHA256_FINGERPRINT/${{ steps.key.outputs.fp }}/" app/src/main/res/values/asset_statements.xml
 
       - name: Build release APK
-        run: gradle assembleRelease --no-daemon
+        run: |
+          set +e
+          gradle assembleRelease --no-daemon --console=plain > build.log 2>&1
+          CODE=$?
+          if [ $CODE -ne 0 ]; then
+            echo '### Build error' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -A30 'What went wrong' build.log | head -45 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -A30 'What went wrong' build.log | head -45
+          fi
+          exit $CODE
 
       - name: Align and sign
         run: |
