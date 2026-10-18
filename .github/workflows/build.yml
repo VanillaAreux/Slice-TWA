@@ -44,7 +44,7 @@ jobs:
             keytool -genkeypair -keystore release.keystore -alias slice \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass "$PASS" -keypass "$PASS" \
-              -dname "CN=Slice, O=JOR, C=US"
+              -dname "CN=Slice, O=Slice Technologies, C=US"
             cp release.keystore out/release.keystore
             echo "$PASS" > out/keystore-password.txt
           fi
@@ -52,7 +52,7 @@ jobs:
           echo "pass=$PASS" >> "$GITHUB_OUTPUT"
           FP=$(keytool -list -v -keystore release.keystore -alias slice -storepass "$PASS" | grep 'SHA256:' | sed 's/.*SHA256: //')
           echo "fp=$FP" >> "$GITHUB_OUTPUT"
-          printf '[{\n  "relation": ["delegate_permission/common.handle_all_urls"],\n  "target": {\n    "namespace": "android_app",\n    "package_name": "com.jor.slice.twa",\n    "sha256_cert_fingerprints": ["%s"]\n  }\n}]\n' "$FP" > out/assetlinks.json
+          printf '[{\n  "relation": ["delegate_permission/common.handle_all_urls"],\n  "target": {\n    "namespace": "android_app",\n    "package_name": "com.slicetechnologies.slice",\n    "sha256_cert_fingerprints": ["%s"]\n  }\n}]\n' "$FP" > out/assetlinks.json
           echo "SHA256: $FP" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Insert fingerprint into app
