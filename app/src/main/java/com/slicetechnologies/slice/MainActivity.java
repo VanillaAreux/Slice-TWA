@@ -38,6 +38,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.ValueCallback;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
@@ -51,9 +52,11 @@ import java.util.concurrent.TimeUnit;
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 4127;
     private static final int REQUEST_NOTIFICATIONS = 4129;
+    private static final int REQUEST_FILE_CHOOSER = 4130;
     private static final String NOTIFICATION_CHANNEL = "slice_updates";
     private String notificationPermissionCallback;
     private WebView webView;
+    private ValueCallback<Uri[]> fileChooserCallback;
     private AudioManager callAudioManager;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
     private AudioFocusRequest audioFocusRequest;
@@ -94,6 +97,34 @@ public class MainActivity extends Activity {
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (fileChooserCallback != null) {
+                    fileChooserCallback.onReceiveValue(null);
+                    fileChooserCallback = null;
+                }
+                fileChooserCallback = callback;
+                try {
+                    Intent pickIntent = params != null ? params.createIntent() : new Intent(Intent.ACTION_GET_CONTENT);
+                    if (pickIntent.getType() == null || pickIntent.getType().isEmpty()) pickIntent.setType("*/*");
+                    pickIntent.addCategory(Intent.CATEGORY_OPENABLE);
+                    Intent chooser = Intent.createChooser(pickIntent, "Select a photo or file");
+                    startActivityForResult(chooser, REQUEST_FILE_CHOOSER);
+                    return true;
+                } catch (Exception ignored) {
+                    try {
+                        Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+                        fallback.addCategory(Intent.CATEGORY_OPENABLE);
+                        fallback.setType("*/*");
+                        startActivityForResult(Intent.createChooser(fallback, "Select a photo or file"), REQUEST_FILE_CHOOSER);
+                        return true;
+                    } catch (Exception failure) {
+                        fileChooserCallback = null;
+                        callback.onReceiveValue(null);
+                        Toast.makeText(MainActivity.this, "Could not open file picker", Toast.LENGTH_SHORT).show();
+                        return false;
+                    }
+                }
+            }
             @Override public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
                     java.util.ArrayList<String> missing = new java.util.ArrayList<>();
@@ -283,6 +314,22 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_FILE_CHOOSER) {
+            ValueCallback<Uri[]> callback = fileChooserCallback;
+            fileChooserCallback = null;
+            if (callback != null) {
+                Uri[] results = null;
+                if (resultCode == RESULT_OK && data != null) {
+                    try { results = WebChromeClient.FileChooserParams.parseResult(resultCode, data); }
+                    catch (Exception ignored) {
+                        Uri uri = data.getData();
+                        if (uri != null) results = new Uri[]{uri};
+                    }
+                }
+                callback.onReceiveValue(results);
+            }
+            return;
+        }
         if (requestCode != REQUEST_CAPTURE) return;
         if (resultCode != RESULT_OK || data == null) {
             sendEvent("null");
@@ -426,6 +473,10 @@ public class MainActivity extends Activity {
             releaseAudioFocus();
         } catch (Exception ignored) {}
         audioPrepared = false;
+        if (fileChooserCallback != null) {
+            fileChooserCallback.onReceiveValue(null);
+            fileChooserCallback = null;
+        }
         if (webView != null) { webView.removeJavascriptInterface("SliceNativeScreenShare"); webView.removeJavascriptInterface("SliceNativeNotifications"); webView.destroy(); webView = null; }
         super.onDestroy();
     }
