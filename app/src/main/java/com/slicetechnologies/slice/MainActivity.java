@@ -44,6 +44,7 @@ public class MainActivity extends Activity {
     private String callbackName;
     private boolean frameBusy = false;
     private PermissionRequest pendingWebPermission;
+    private String[] pendingRuntimePermissions = new String[0];
     private int captureWidth = 480, captureHeight = 270;
 
     @Override public void onCreate(Bundle state) {
@@ -70,17 +71,26 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
-                    boolean needsRuntimePermission = false;
+                    java.util.ArrayList<String> missing = new java.util.ArrayList<>();
                     for (String resource : request.getResources()) {
                         if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource) &&
-                            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) needsRuntimePermission = true;
+                            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED &&
+                            !missing.contains(Manifest.permission.RECORD_AUDIO)) {
+                            missing.add(Manifest.permission.RECORD_AUDIO);
+                        }
                         if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource) &&
-                            checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) needsRuntimePermission = true;
+                            checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED &&
+                            !missing.contains(Manifest.permission.CAMERA)) {
+                            missing.add(Manifest.permission.CAMERA);
+                        }
                     }
-                    if (needsRuntimePermission) {
+                    if (!missing.isEmpty()) {
                         pendingWebPermission = request;
-                        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA}, 4128);
-                    } else request.grant(request.getResources());
+                        pendingRuntimePermissions = missing.toArray(new String[0]);
+                        requestPermissions(pendingRuntimePermissions, 4128);
+                    } else {
+                        request.grant(request.getResources());
+                    }
                 });
             }
             @Override public void onPermissionRequestCanceled(PermissionRequest request) {}
@@ -111,11 +121,12 @@ public class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 4128 && pendingWebPermission != null) {
-            boolean granted = grantResults.length > 0;
+            boolean granted = pendingRuntimePermissions.length > 0 && grantResults.length == pendingRuntimePermissions.length;
             for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
             if (granted) pendingWebPermission.grant(pendingWebPermission.getResources());
             else pendingWebPermission.deny();
             pendingWebPermission = null;
+            pendingRuntimePermissions = new String[0];
         }
     }
 
