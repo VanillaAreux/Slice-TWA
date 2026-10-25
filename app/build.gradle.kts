@@ -27,6 +27,13 @@ android {
     }
 }
 
+// Recent Kotlin stdlib versions include the JDK 7/8 APIs directly. Remove older
+// split artifacts pulled in transitively so D8 does not see duplicate classes.
+configurations.configureEach {
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+}
+
 dependencies {
     implementation("androidx.activity:activity:1.9.3")
 }
