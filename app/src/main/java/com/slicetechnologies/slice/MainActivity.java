@@ -166,7 +166,7 @@ public class MainActivity extends Activity {
     private void completeNotificationPermission(boolean granted) {
         String callback = notificationPermissionCallback;
         notificationPermissionCallback = null;
-        if (callback != null && webView != null) webView.evaluateJavascript("window[" + JSONObjectQuote(callback) + "](" + (granted ? "true" : "false") + ")", null);
+        if (callback != null && webView != null) webView.evaluateJavascript("window[\u0027" + callback + "\u0027](" + (granted ? "true" : "false") + ")", null);
     }
 
     private class ScreenShareBridge {
