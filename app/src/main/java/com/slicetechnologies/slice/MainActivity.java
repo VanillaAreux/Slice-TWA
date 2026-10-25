@@ -16,6 +16,9 @@ import android.hardware.display.VirtualDisplay;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.AudioManager;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.os.Build;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
@@ -41,6 +44,8 @@ public class MainActivity extends Activity {
     private WebView webView;
     private AudioManager callAudioManager;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
+    private AudioFocusRequest audioFocusRequest;
+    private boolean audioPrepared = false;
     private MediaProjection projection;
     private VirtualDisplay display;
     private ImageReader reader;
@@ -123,24 +128,50 @@ public class MainActivity extends Activity {
             // Apply the audio mode synchronously: JavaScript starts getUserMedia immediately
             // after this bridge call returns, so posting the mode change to the UI queue races it.
             try {
+                if (audioPrepared) return; // already prepared for an in-flight call; don't clobber previousAudioMode
                 if (callAudioManager == null) callAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
                 if (callAudioManager != null) {
+                    // Without explicitly holding audio focus, the system can keep routing/locking
+                    // the mic to whatever last had focus (a notification, another app's playback,
+                    // or a previous call that didn't clean up), which surfaces to WebRTC as
+                    // NotReadableError even though RECORD_AUDIO is granted. Request focus first.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        AudioAttributes attrs = new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build();
+                        audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                            .setAudioAttributes(attrs)
+                            .build();
+                        callAudioManager.requestAudioFocus(audioFocusRequest);
+                    } else {
+                        callAudioManager.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+                    }
                     previousAudioMode = callAudioManager.getMode();
                     callAudioManager.setMicrophoneMute(false);
                     callAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    audioPrepared = true;
                 }
             } catch (Exception ignored) {}
         }
         @JavascriptInterface public void endAudio() {
             try {
-                if (callAudioManager != null) callAudioManager.setMode(previousAudioMode);
+                if (callAudioManager != null) {
+                    callAudioManager.setMode(previousAudioMode);
+                    releaseAudioFocus();
+                }
+                audioPrepared = false;
             } catch (Exception ignored) {}
         }
         @JavascriptInterface public void stop() {
             runOnUiThread(() -> {
                 MainActivity.this.stopCapture();
                 try {
-                    if (callAudioManager != null) callAudioManager.setMode(previousAudioMode);
+                    if (callAudioManager != null) {
+                        callAudioManager.setMode(previousAudioMode);
+                        releaseAudioFocus();
+                    }
+                    audioPrepared = false;
                 } catch (Exception ignored) {}
             });
         }
@@ -230,6 +261,17 @@ public class MainActivity extends Activity {
                 webView.evaluateJavascript("window[" + JSONObjectQuote(callbackName) + "](" + JSONObjectQuote(value) + ")", null);
         });
     }
+    private void releaseAudioFocus() {
+        try {
+            if (callAudioManager == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
+                callAudioManager.abandonAudioFocusRequest(audioFocusRequest);
+                audioFocusRequest = null;
+            } else {
+                callAudioManager.abandonAudioFocus(null);
+            }
+        } catch (Exception ignored) {}
+    }
     private void stopCapture() {
         try { if (display != null) display.release(); } catch (Exception ignored) {}
         try { if (reader != null) reader.close(); } catch (Exception ignored) {}
@@ -251,6 +293,11 @@ public class MainActivity extends Activity {
     }
     @Override protected void onDestroy() {
         stopCapture();
+        try {
+            if (callAudioManager != null) callAudioManager.setMode(previousAudioMode);
+            releaseAudioFocus();
+        } catch (Exception ignored) {}
+        audioPrepared = false;
         if (webView != null) { webView.removeJavascriptInterface("SliceNativeScreenShare"); webView.destroy(); webView = null; }
         super.onDestroy();
     }
