@@ -6,6 +6,10 @@ import android.net.Uri;
 import android.webkit.WebResourceRequest;
 import android.webkit.CookieManager;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -46,6 +50,9 @@ import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 4127;
+    private static final int REQUEST_NOTIFICATIONS = 4129;
+    private static final String NOTIFICATION_CHANNEL = "slice_updates";
+    private String notificationPermissionCallback;
     private WebView webView;
     private AudioManager callAudioManager;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
@@ -65,6 +72,7 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         getWindow().setStatusBarColor(0xff111318);
         getWindow().setNavigationBarColor(0xff111318);
+        createNotificationChannel();
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         webView = new WebView(this);
@@ -113,8 +121,52 @@ public class MainActivity extends Activity {
             @Override public void onPermissionRequestCanceled(PermissionRequest request) {}
         });
         webView.addJavascriptInterface(new ScreenShareBridge(), "SliceNativeScreenShare");
+        webView.addJavascriptInterface(new NativeNotificationsBridge(), "SliceNativeNotifications");
         setContentView(webView);
         webView.loadUrl("https://slicesocial.vercel.app/");
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(NOTIFICATION_CHANNEL, "Slice notifications", NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription("Messages, friend requests, and call alerts from Slice");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) manager.createNotificationChannel(channel);
+        }
+    }
+
+    private class NativeNotificationsBridge {
+        @JavascriptInterface public boolean available() { return true; }
+        @JavascriptInterface public void enable(String callback) {
+            if (callback == null || !callback.matches("[A-Za-z_$][A-Za-z0-9_$]*")) return;
+            runOnUiThread(() -> {
+                notificationPermissionCallback = callback;
+                if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) completeNotificationPermission(true);
+                else requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+            });
+        }
+        @JavascriptInterface public void show(String title, String body, String target) {
+            final String safeTitle = title == null || title.trim().isEmpty() ? "Slice" : title.trim().substring(0, Math.min(80, title.trim().length()));
+            final String safeBody = body == null ? "" : body.trim().substring(0, Math.min(240, body.trim().length()));
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
+                Intent launch = new Intent(MainActivity.this, MainActivity.class);
+                launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                PendingIntent pending = PendingIntent.getActivity(MainActivity.this, (int)(System.currentTimeMillis() & 0x7fffffff), launch,
+                    PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
+                Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(MainActivity.this, NOTIFICATION_CHANNEL) : new Notification.Builder(MainActivity.this);
+                builder.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(safeTitle).setContentText(safeBody)
+                    .setStyle(new Notification.BigTextStyle().bigText(safeBody)).setContentIntent(pending).setAutoCancel(true);
+                NotificationManager manager = (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
+                if (manager != null) manager.notify((int)(System.currentTimeMillis() & 0x7fffffff), builder.build());
+            });
+        }
+    }
+
+    private void completeNotificationPermission(boolean granted) {
+        String callback = notificationPermissionCallback;
+        notificationPermissionCallback = null;
+        if (callback != null && webView != null) webView.evaluateJavascript("window[" + JSONObjectQuote(callback) + "](" + (granted ? "true" : "false") + ")", null);
     }
 
     private class ScreenShareBridge {
@@ -214,6 +266,11 @@ public class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_NOTIFICATIONS) {
+            boolean granted = Build.VERSION.SDK_INT < 33 || (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED);
+            completeNotificationPermission(granted);
+            return;
+        }
         if (requestCode == 4128 && pendingWebPermission != null) {
             boolean granted = pendingRuntimePermissions.length > 0 && grantResults.length == pendingRuntimePermissions.length;
             for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
@@ -369,7 +426,7 @@ public class MainActivity extends Activity {
             releaseAudioFocus();
         } catch (Exception ignored) {}
         audioPrepared = false;
-        if (webView != null) { webView.removeJavascriptInterface("SliceNativeScreenShare"); webView.destroy(); webView = null; }
+        if (webView != null) { webView.removeJavascriptInterface("SliceNativeScreenShare"); webView.removeJavascriptInterface("SliceNativeNotifications"); webView.destroy(); webView = null; }
         super.onDestroy();
     }
 }
