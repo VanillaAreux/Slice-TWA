@@ -28,6 +28,7 @@ import android.util.Base64;
 import android.util.DisplayMetrics;
 import android.util.Rational;
 import android.app.PictureInPictureParams;
+import android.app.PictureInPictureUiState;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -40,6 +41,8 @@ import androidx.activity.ComponentActivity;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 4127;
@@ -180,15 +183,32 @@ public class MainActivity extends Activity {
         @JavascriptInterface public boolean available() { return true; }
         @JavascriptInterface public boolean enterPictureInPicture() {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
-            runOnUiThread(() -> {
+            final AtomicBoolean entered = new AtomicBoolean(false);
+            final CountDownLatch finished = new CountDownLatch(1);
+            Runnable request = () -> {
                 try {
                     PictureInPictureParams params = new PictureInPictureParams.Builder()
                         .setAspectRatio(new Rational(16, 9))
                         .build();
-                    enterPictureInPictureMode(params);
-                } catch (Exception ignored) {}
-            });
-            return true;
+                    entered.set(enterPictureInPictureMode(params));
+                } catch (Exception ignored) {
+                    entered.set(false);
+                } finally {
+                    finished.countDown();
+                }
+            };
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                request.run();
+            } else {
+                runOnUiThread(request);
+                try {
+                    if (!finished.await(1500, TimeUnit.MILLISECONDS)) return false;
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return entered.get();
         }
     }
 
@@ -314,6 +334,15 @@ public class MainActivity extends Activity {
                 handler.postDelayed(refreshPipSurface, 300);
                 handler.postDelayed(refreshPipSurface, 700);
             }
+        }
+    }
+
+    @Override public void onPictureInPictureUiStateChanged(PictureInPictureUiState pipState) {
+        super.onPictureInPictureUiStateChanged(pipState);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && pipState.isTransitioningToPip() && webView != null) {
+            // Hide the page before Android captures/resizes the WebView surface.
+            webView.evaluateJavascript("if(window.__sliceForceCallPipLayout)window.__sliceForceCallPipLayout()", null);
+            webView.invalidate();
         }
     }
 
