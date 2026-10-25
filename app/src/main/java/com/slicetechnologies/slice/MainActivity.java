@@ -301,8 +301,10 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
-        // Keep WebRTC and PiP rendering alive while Android shows the app in PiP.
-        if (webView != null && (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode())) webView.onPause();
+        // Do not call WebView.onPause() here: Android can dispatch Activity.onPause
+        // just before the PiP mode callback. Pausing the WebView at that moment
+        // suspends its timers/media and can tear down the active WebRTC call.
+        // Let Android background the Activity while the WebView call remains alive.
         try { CookieManager.getInstance().flush(); } catch (Exception ignored) {}
         super.onPause();
     }
