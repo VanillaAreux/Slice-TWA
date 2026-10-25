@@ -292,6 +292,14 @@ public class MainActivity extends Activity {
         try { if (projection != null) projection.stop(); } catch (Exception ignored) {}
         display = null; reader = null; projection = null; callbackName = null; frameBusy = false;
     }
+    @Override public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, android.content.res.Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        if (webView != null) {
+            String script = "if(window.__slicePipChanged)window.__slicePipChanged(" + isInPictureInPictureMode + ")";
+            webView.post(() -> webView.evaluateJavascript(script, null));
+        }
+    }
+
     @Override protected void onPause() {
         // Keep WebRTC and PiP rendering alive while Android shows the app in PiP.
         if (webView != null && (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode())) webView.onPause();
