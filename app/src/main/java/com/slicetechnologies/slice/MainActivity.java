@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.webkit.WebResourceRequest;
+import android.webkit.CookieManager;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -51,7 +52,10 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         getWindow().setStatusBarColor(0xff111318);
         getWindow().setNavigationBarColor(0xff111318);
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
         webView = new WebView(this);
+        cookieManager.setAcceptThirdPartyCookies(webView, true);
         webView.setBackgroundColor(0xff111318);
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -206,6 +210,15 @@ public class MainActivity extends Activity {
         try { if (reader != null) reader.close(); } catch (Exception ignored) {}
         try { if (projection != null) projection.stop(); } catch (Exception ignored) {}
         display = null; reader = null; projection = null; callbackName = null; frameBusy = false;
+    }
+    @Override protected void onPause() {
+        if (webView != null) webView.onPause();
+        try { CookieManager.getInstance().flush(); } catch (Exception ignored) {}
+        super.onPause();
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (webView != null) webView.onResume();
     }
     @Override public void onBackPressed() {
         if (webView != null && webView.canGoBack()) webView.goBack();
