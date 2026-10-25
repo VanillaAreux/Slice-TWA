@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace = "com.slicetechnologies.slice"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.slicetechnologies.slice"
