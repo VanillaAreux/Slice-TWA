@@ -26,6 +26,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
 import android.util.DisplayMetrics;
+import android.util.Rational;
+import android.app.PictureInPictureParams;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -176,6 +178,18 @@ public class MainActivity extends Activity {
             });
         }
         @JavascriptInterface public boolean available() { return true; }
+        @JavascriptInterface public boolean enterPictureInPicture() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
+            runOnUiThread(() -> {
+                try {
+                    PictureInPictureParams params = new PictureInPictureParams.Builder()
+                        .setAspectRatio(new Rational(16, 9))
+                        .build();
+                    enterPictureInPictureMode(params);
+                } catch (Exception ignored) {}
+            });
+            return true;
+        }
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -279,7 +293,8 @@ public class MainActivity extends Activity {
         display = null; reader = null; projection = null; callbackName = null; frameBusy = false;
     }
     @Override protected void onPause() {
-        if (webView != null) webView.onPause();
+        // Keep WebRTC and PiP rendering alive while Android shows the app in PiP.
+        if (webView != null && (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode())) webView.onPause();
         try { CookieManager.getInstance().flush(); } catch (Exception ignored) {}
         super.onPause();
     }
