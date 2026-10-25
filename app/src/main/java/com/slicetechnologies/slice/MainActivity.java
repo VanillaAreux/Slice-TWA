@@ -15,6 +15,7 @@ import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.AudioManager;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
@@ -38,6 +39,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 4127;
     private WebView webView;
+    private AudioManager callAudioManager;
+    private int previousAudioMode = AudioManager.MODE_NORMAL;
     private MediaProjection projection;
     private VirtualDisplay display;
     private ImageReader reader;
@@ -116,8 +119,25 @@ public class MainActivity extends Activity {
                 startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE);
             });
         }
+        @JavascriptInterface public void prepareAudio() {
+            runOnUiThread(() -> {
+                try {
+                    if (callAudioManager == null) callAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (callAudioManager != null) {
+                        previousAudioMode = callAudioManager.getMode();
+                        callAudioManager.setMicrophoneMute(false);
+                        callAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                    }
+                } catch (Exception ignored) {}
+            });
+        }
         @JavascriptInterface public void stop() {
-            runOnUiThread(MainActivity.this::stopCapture);
+            runOnUiThread(() -> {
+                MainActivity.this.stopCapture();
+                try {
+                    if (callAudioManager != null) callAudioManager.setMode(previousAudioMode);
+                } catch (Exception ignored) {}
+            });
         }
         @JavascriptInterface public boolean available() { return true; }
     }
