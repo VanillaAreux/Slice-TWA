@@ -1,6 +1,9 @@
 package com.slicetechnologies.slice;
 
 import android.Manifest;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.webkit.WebResourceRequest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -40,6 +43,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private String callbackName;
     private boolean frameBusy = false;
+    private PermissionRequest pendingWebPermission;
     private int captureWidth = 480, captureHeight = 270;
 
     @Override public void onCreate(Bundle state) {
@@ -55,18 +59,28 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setSupportMultipleWindows(false);
         settings.setLoadsImagesAutomatically(true);
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if ("slicesocial.vercel.app".equalsIgnoreCase(uri.getHost()) && "https".equalsIgnoreCase(uri.getScheme())) return false;
+                try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {}
+                return true;
+            }
+        });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
+                    boolean needsRuntimePermission = false;
                     for (String resource : request.getResources()) {
-                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource) ||
-                            PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
-                            request.grant(request.getResources());
-                            return;
-                        }
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource) &&
+                            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) needsRuntimePermission = true;
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource) &&
+                            checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) needsRuntimePermission = true;
                     }
-                    request.deny();
+                    if (needsRuntimePermission) {
+                        pendingWebPermission = request;
+                        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA}, 4128);
+                    } else request.grant(request.getResources());
                 });
             }
             @Override public void onPermissionRequestCanceled(PermissionRequest request) {}
@@ -92,6 +106,17 @@ public class MainActivity extends Activity {
             runOnUiThread(MainActivity.this::stopCapture);
         }
         @JavascriptInterface public boolean available() { return true; }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 4128 && pendingWebPermission != null) {
+            boolean granted = grantResults.length > 0;
+            for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
+            if (granted) pendingWebPermission.grant(pendingWebPermission.getResources());
+            else pendingWebPermission.deny();
+            pendingWebPermission = null;
+        }
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
