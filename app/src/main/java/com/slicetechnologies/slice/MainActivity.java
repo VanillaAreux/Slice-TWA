@@ -295,8 +295,25 @@ public class MainActivity extends Activity {
     @Override public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, android.content.res.Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         if (webView != null) {
-            String script = "if(window.__slicePipChanged)window.__slicePipChanged(" + isInPictureInPictureMode + ")";
-            webView.post(() -> webView.evaluateJavascript(script, null));
+            final boolean inPip = isInPictureInPictureMode;
+            // The initial task-switcher snapshot can be correct while the live
+            // WebView surface redraws using the resized PiP viewport. Reassert
+            // the JS layout after Android finishes its PiP resize and force the
+            // native WebView to invalidate its composited surface.
+            Runnable refreshPipSurface = () -> {
+                if (webView == null || isFinishing()) return;
+                String script = "if(window.__slicePipChanged)window.__slicePipChanged(" + inPip + ");"
+                    + "if(window.__sliceRefreshCallPip)window.__sliceRefreshCallPip(" + inPip + ");";
+                webView.evaluateJavascript(script, null);
+                webView.invalidate();
+                webView.requestLayout();
+            };
+            webView.post(refreshPipSurface);
+            if (inPip) {
+                handler.postDelayed(refreshPipSurface, 100);
+                handler.postDelayed(refreshPipSurface, 300);
+                handler.postDelayed(refreshPipSurface, 700);
+            }
         }
     }
 
