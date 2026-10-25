@@ -120,16 +120,21 @@ public class MainActivity extends Activity {
             });
         }
         @JavascriptInterface public void prepareAudio() {
-            runOnUiThread(() -> {
-                try {
-                    if (callAudioManager == null) callAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-                    if (callAudioManager != null) {
-                        previousAudioMode = callAudioManager.getMode();
-                        callAudioManager.setMicrophoneMute(false);
-                        callAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                    }
-                } catch (Exception ignored) {}
-            });
+            // Apply the audio mode synchronously: JavaScript starts getUserMedia immediately
+            // after this bridge call returns, so posting the mode change to the UI queue races it.
+            try {
+                if (callAudioManager == null) callAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                if (callAudioManager != null) {
+                    previousAudioMode = callAudioManager.getMode();
+                    callAudioManager.setMicrophoneMute(false);
+                    callAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                }
+            } catch (Exception ignored) {}
+        }
+        @JavascriptInterface public void endAudio() {
+            try {
+                if (callAudioManager != null) callAudioManager.setMode(previousAudioMode);
+            } catch (Exception ignored) {}
         }
         @JavascriptInterface public void stop() {
             runOnUiThread(() -> {
