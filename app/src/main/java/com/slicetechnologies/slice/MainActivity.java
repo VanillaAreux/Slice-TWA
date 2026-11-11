@@ -53,10 +53,13 @@ public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 4127;
     private static final int REQUEST_NOTIFICATIONS = 4129;
     private static final int REQUEST_FILE_CHOOSER = 4130;
+    private static final int REQUEST_SAVE_FILE = 4131;
     private static final String NOTIFICATION_CHANNEL = "slice_updates";
     private String notificationPermissionCallback;
     private WebView webView;
     private ValueCallback<Uri[]> fileChooserCallback;
+    private byte[] pendingSaveBytes;
+    private String pendingSaveCallback;
     private AudioManager callAudioManager;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
     private AudioFocusRequest audioFocusRequest;
@@ -153,6 +156,7 @@ public class MainActivity extends Activity {
         });
         webView.addJavascriptInterface(new ScreenShareBridge(), "SliceNativeScreenShare");
         webView.addJavascriptInterface(new NativeNotificationsBridge(), "SliceNativeNotifications");
+        webView.addJavascriptInterface(new NativeFilesBridge(), "SliceNativeFiles");
         setContentView(webView);
         webView.loadUrl("https://slicesocial.vercel.app/");
     }
@@ -192,6 +196,51 @@ public class MainActivity extends Activity {
                 if (manager != null) manager.notify((int)(System.currentTimeMillis() & 0x7fffffff), builder.build());
             });
         }
+    }
+
+    private class NativeFilesBridge {
+        @JavascriptInterface public boolean available() { return true; }
+        @JavascriptInterface public boolean saveFile(String filename, String mimeType, String base64, String callback) {
+            if (filename == null || base64 == null || callback == null ||
+                !callback.matches("[A-Za-z_$][A-Za-z0-9_$]*")) return false;
+            try {
+                byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+                if (bytes.length > 40 * 1024 * 1024) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "File is too large to save from the app", Toast.LENGTH_LONG).show());
+                    return false;
+                }
+                runOnUiThread(() -> {
+                    if (pendingSaveBytes != null) {
+                        finishNativeSave(false, "Another file save is already in progress");
+                        return;
+                    }
+                    pendingSaveBytes = bytes;
+                    pendingSaveCallback = callback;
+                    String safeName = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType(mimeType == null || mimeType.isEmpty() ? "application/octet-stream" : mimeType);
+                    intent.putExtra(Intent.EXTRA_TITLE, safeName);
+                    try { startActivityForResult(intent, REQUEST_SAVE_FILE); }
+                    catch (Exception error) { finishNativeSave(false, "Could not open Android file picker"); }
+                });
+                return true;
+            } catch (Exception error) {
+                return false;
+            }
+        }
+    }
+
+    private void finishNativeSave(boolean success, String message) {
+        String callback = pendingSaveCallback;
+        pendingSaveCallback = null;
+        pendingSaveBytes = null;
+        if (callback != null && webView != null) {
+            String result = "{success:" + (success ? "true" : "false") + ",message:" + JSONObjectQuote(message == null ? "" : message) + "}";
+            webView.evaluateJavascript("window[" + JSONObjectQuote(callback) + "](" + result + ")", null);
+        }
+        if (!success && message != null && !message.isEmpty())
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
     private void completeNotificationPermission(boolean granted) {
@@ -314,6 +363,25 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_SAVE_FILE) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                finishNativeSave(false, "");
+                return;
+            }
+            if (pendingSaveBytes == null) {
+                finishNativeSave(false, "No file data to save");
+                return;
+            }
+            try (java.io.OutputStream output = getContentResolver().openOutputStream(data.getData())) {
+                if (output == null) throw new java.io.IOException("Could not open destination");
+                output.write(pendingSaveBytes);
+                output.flush();
+                finishNativeSave(true, "File saved");
+            } catch (Exception error) {
+                finishNativeSave(false, "Could not save file: " + error.getMessage());
+            }
+            return;
+        }
         if (requestCode == REQUEST_FILE_CHOOSER) {
             ValueCallback<Uri[]> callback = fileChooserCallback;
             fileChooserCallback = null;
@@ -477,7 +545,7 @@ public class MainActivity extends Activity {
             fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = null;
         }
-        if (webView != null) { webView.removeJavascriptInterface("SliceNativeScreenShare"); webView.removeJavascriptInterface("SliceNativeNotifications"); webView.destroy(); webView = null; }
+        if (webView != null) { webView.removeJavascriptInterface("SliceNativeScreenShare"); webView.removeJavascriptInterface("SliceNativeNotifications"); webView.removeJavascriptInterface("SliceNativeFiles"); webView.destroy(); webView = null; }
         super.onDestroy();
     }
 }
