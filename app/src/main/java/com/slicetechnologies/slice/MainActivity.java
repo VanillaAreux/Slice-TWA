@@ -6,6 +6,7 @@ import android.net.Uri;
 import android.webkit.WebResourceRequest;
 import android.webkit.CookieManager;
 import android.app.Activity;
+import android.app.DownloadManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -27,6 +28,7 @@ import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Environment;
 import android.os.Looper;
 import android.util.Base64;
 import android.util.DisplayMetrics;
@@ -41,6 +43,8 @@ import android.webkit.WebSettings;
 import android.webkit.ValueCallback;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.DownloadListener;
+import android.webkit.URLUtil;
 import android.widget.Toast;
 import androidx.activity.ComponentActivity;
 import java.io.ByteArrayOutputStream;
@@ -153,6 +157,32 @@ public class MainActivity extends Activity {
                 });
             }
             @Override public void onPermissionRequestCanceled(PermissionRequest request) {}
+        });
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            try {
+                Uri downloadUri = Uri.parse(url);
+                if (!"https".equalsIgnoreCase(downloadUri.getScheme()) ||
+                    !"slicesocial.vercel.app".equalsIgnoreCase(downloadUri.getHost())) {
+                    Toast.makeText(MainActivity.this, "Only Slice file downloads are supported here", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                String filename = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                DownloadManager.Request request = new DownloadManager.Request(downloadUri);
+                request.setTitle(filename);
+                request.setDescription("Downloading from Slice");
+                request.setMimeType(mimeType == null ? "application/octet-stream" : mimeType);
+                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
+                String cookie = CookieManager.getInstance().getCookie(url);
+                if (cookie != null && !cookie.isEmpty()) request.addRequestHeader("Cookie", cookie);
+                if (userAgent != null && !userAgent.isEmpty()) request.addRequestHeader("User-Agent", userAgent);
+                DownloadManager manager = (DownloadManager)getSystemService(DOWNLOAD_SERVICE);
+                if (manager == null) throw new IllegalStateException("Android download service unavailable");
+                manager.enqueue(request);
+                Toast.makeText(MainActivity.this, "Download started: " + filename, Toast.LENGTH_SHORT).show();
+            } catch (Exception error) {
+                Toast.makeText(MainActivity.this, "Could not start download: " + error.getMessage(), Toast.LENGTH_LONG).show();
+            }
         });
         webView.addJavascriptInterface(new ScreenShareBridge(), "SliceNativeScreenShare");
         webView.addJavascriptInterface(new NativeNotificationsBridge(), "SliceNativeNotifications");
