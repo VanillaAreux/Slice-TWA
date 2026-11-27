@@ -98,7 +98,7 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
-                if ("slicesocial.vercel.app".equalsIgnoreCase(uri.getHost()) && "https".equalsIgnoreCase(uri.getScheme())) return false;
+                if ("slicesocial.netlify.app".equalsIgnoreCase(uri.getHost()) && "https".equalsIgnoreCase(uri.getScheme())) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {}
                 return true;
             }
@@ -162,7 +162,7 @@ public class MainActivity extends Activity {
             try {
                 Uri downloadUri = Uri.parse(url);
                 if (!"https".equalsIgnoreCase(downloadUri.getScheme()) ||
-                    !"slicesocial.vercel.app".equalsIgnoreCase(downloadUri.getHost())) {
+                    !"slicesocial.netlify.app".equalsIgnoreCase(downloadUri.getHost())) {
                     Toast.makeText(MainActivity.this, "Only Slice file downloads are supported here", Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -188,7 +188,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new NativeNotificationsBridge(), "SliceNativeNotifications");
         webView.addJavascriptInterface(new NativeFilesBridge(), "SliceNativeFiles");
         setContentView(webView);
-        webView.loadUrl("https://slicesocial.vercel.app/");
+        webView.loadUrl("https://slicesocial.netlify.app/");
     }
 
     private void createNotificationChannel() {
