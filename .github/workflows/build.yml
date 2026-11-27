@@ -36,9 +36,9 @@ jobs:
             PASS="$KS_PASS"
           else
             PASS=$(openssl rand -hex 12)
-            keytool -genkeypair -keystore release.keystore -alias slice \\
-              -keyalg RSA -keysize 2048 -validity 10000 \\
-              -storepass "$PASS" -keypass "$PASS" \\
+            keytool -genkeypair -keystore release.keystore -alias slice \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$PASS" -keypass "$PASS" \
               -dname "CN=Slice, O=Slice Technologies, C=US"
             cp release.keystore out/release.keystore
             echo "$PASS" > out/keystore-password.txt
@@ -56,7 +56,7 @@ jobs:
         run: |
           BT="$ANDROID_HOME/build-tools/35.0.0"
           "$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-          "$BT/apksigner" sign --ks release.keystore --ks-key-alias slice \\
+          "$BT/apksigner" sign --ks release.keystore --ks-key-alias slice \
             --ks-pass "pass:${{ steps.key.outputs.pass }}" --out out/Slice.apk aligned.apk
           "$BT/apksigner" verify out/Slice.apk
 
