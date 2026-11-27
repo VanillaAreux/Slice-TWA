@@ -52,8 +52,7 @@ jobs:
           BT="$ANDROID_HOME/build-tools/35.0.0"
           mkdir -p out
           "$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-          "$BT/apksigner" sign --ks signing-keys/release.keystore --ks-key-alias slice \\
-            --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out out/slice-release.apk aligned.apk
+          "$BT/apksigner" sign --ks signing-keys/release.keystore --ks-key-alias slice --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out out/slice-release.apk aligned.apk
           "$BT/apksigner" verify --verbose out/slice-release.apk
           unset PASS
 
