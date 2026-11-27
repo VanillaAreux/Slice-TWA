@@ -12,4 +12,4 @@ The screen-capture prompt is shown every time sharing starts. Android's own shar
 
 Open this project in Android Studio and build/install the debug APK. A current Android SDK and JDK 17 are required. Test camera/microphone permissions, push notifications, links, login, calls, and screen sharing before distributing. This is a WebView-based app rather than a TWA, so browser-only features and push notification behavior may differ from the old package.
 
-The launcher URL is `https://slicesocial.vercel.app/`.
+The launcher URL is `https://slicesocial.netlify.app/`.
