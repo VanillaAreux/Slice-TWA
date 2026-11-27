@@ -31,7 +31,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="slicesocial.vercel.app" />
+                <data android:scheme="https" android:host="slicesocial.netlify.app" />
             </intent-filter>
         </activity>
     </application>
