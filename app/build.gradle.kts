@@ -12,8 +12,8 @@ android {
         // Target 32 while this legacy WebView wrapper is being replaced; Android 14's stricter
         // MediaProjection foreground-service requirements apply when targeting API 34+.
         targetSdk = 32
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
     }
 
     buildTypes {
