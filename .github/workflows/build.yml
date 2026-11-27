@@ -1,11 +1,10 @@
-name: Build APK
+name: Build Slice Android release APK
 
 on:
   workflow_dispatch:
 
-defaults:
-  run:
-    working-directory: SliceTWA
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -13,21 +12,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unzip project
-        working-directory: .
-        run: unzip -oq SliceTWA.zip
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
+
+      - name: Install Android SDK platform
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
-
-      - name: Ensure Android platform 34
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" > /dev/null
 
       - name: Prepare signing key
         id: key
@@ -41,9 +36,9 @@ jobs:
             PASS="$KS_PASS"
           else
             PASS=$(openssl rand -hex 12)
-            keytool -genkeypair -keystore release.keystore -alias slice \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass "$PASS" -keypass "$PASS" \
+            keytool -genkeypair -keystore release.keystore -alias slice \\
+              -keyalg RSA -keysize 2048 -validity 10000 \\
+              -storepass "$PASS" -keypass "$PASS" \\
               -dname "CN=Slice, O=Slice Technologies, C=US"
             cp release.keystore out/release.keystore
             echo "$PASS" > out/keystore-password.txt
@@ -51,49 +46,34 @@ jobs:
           echo "::add-mask::$PASS"
           echo "pass=$PASS" >> "$GITHUB_OUTPUT"
           FP=$(keytool -list -v -keystore release.keystore -alias slice -storepass "$PASS" | grep 'SHA256:' | sed 's/.*SHA256: //')
-          echo "fp=$FP" >> "$GITHUB_OUTPUT"
           printf '[{\n  "relation": ["delegate_permission/common.handle_all_urls"],\n  "target": {\n    "namespace": "android_app",\n    "package_name": "com.slicetechnologies.slice",\n    "sha256_cert_fingerprints": ["%s"]\n  }\n}]\n' "$FP" > out/assetlinks.json
           echo "SHA256: $FP" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Insert fingerprint into app
-        run: sed -i "s/REPLACE_WITH_YOUR_SHA256_FINGERPRINT/${{ steps.key.outputs.fp }}/" app/src/main/res/values/asset_statements.xml
-
       - name: Build release APK
-        run: |
-          set +e
-          gradle assembleRelease --no-daemon --console=plain > build.log 2>&1
-          CODE=$?
-          if [ $CODE -ne 0 ]; then
-            echo '### Build error' >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            grep -A30 'What went wrong' build.log | head -45 >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            grep -A30 'What went wrong' build.log | head -45
-          fi
-          exit $CODE
+        run: gradle --no-daemon assembleRelease
 
       - name: Align and sign
         run: |
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          BT="$ANDROID_HOME/build-tools/35.0.0"
           "$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-          "$BT/apksigner" sign --ks release.keystore --ks-key-alias slice \
+          "$BT/apksigner" sign --ks release.keystore --ks-key-alias slice \\
             --ks-pass "pass:${{ steps.key.outputs.pass }}" --out out/Slice.apk aligned.apk
           "$BT/apksigner" verify out/Slice.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: Slice-apk
-          path: SliceTWA/out/Slice.apk
+          path: out/Slice.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: assetlinks
-          path: SliceTWA/out/assetlinks.json
+          path: out/assetlinks.json
 
       - uses: actions/upload-artifact@v4
-        if: hashFiles('SliceTWA/out/keystore-password.txt') != ''
+        if: hashFiles('out/keystore-password.txt') != ''
         with:
           name: signing-keys
           path: |
-            SliceTWA/out/release.keystore
-            SliceTWA/out/keystore-password.txt
+            out/release.keystore
+            out/keystore-password.txt
