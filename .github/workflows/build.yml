@@ -1,10 +1,19 @@
-name: Build Slice Android release APK
+name: Build and publish Slice Android release
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build.yml'
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  actions: read
+  contents: write
 
 jobs:
   build:
@@ -24,56 +33,41 @@ jobs:
         with:
           gradle-version: 8.7
 
-      - name: Prepare signing key
-        id: key
-        env:
-          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
-          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: |
-          mkdir -p out
-          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
-            echo "$KS_B64" | base64 -d > release.keystore
-            PASS="$KS_PASS"
-          else
-            PASS=$(openssl rand -hex 12)
-            keytool -genkeypair -keystore release.keystore -alias slice \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass "$PASS" -keypass "$PASS" \
-              -dname "CN=Slice, O=Slice Technologies, C=US"
-            cp release.keystore out/release.keystore
-            echo "$PASS" > out/keystore-password.txt
-          fi
-          echo "::add-mask::$PASS"
-          echo "pass=$PASS" >> "$GITHUB_OUTPUT"
-          FP=$(keytool -list -v -keystore release.keystore -alias slice -storepass "$PASS" | grep 'SHA256:' | sed 's/.*SHA256: //')
-          printf '[{\n  "relation": ["delegate_permission/common.handle_all_urls"],\n  "target": {\n    "namespace": "android_app",\n    "package_name": "com.slicetechnologies.slice",\n    "sha256_cert_fingerprints": ["%s"]\n  }\n}]\n' "$FP" > out/assetlinks.json
-          echo "SHA256: $FP" >> "$GITHUB_STEP_SUMMARY"
+      - name: Download the original Slice signing key
+        uses: actions/download-artifact@v4
+        with:
+          name: signing-keys
+          repository: ${{ github.repository }}
+          run-id: 39153658606
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: signing-keys
 
       - name: Build release APK
         run: gradle --no-daemon assembleRelease
 
-      - name: Align and sign
+      - name: Align and sign with the original key
         run: |
+          set -euo pipefail
+          PASS="$(cat signing-keys/keystore-password.txt)"
           BT="$ANDROID_HOME/build-tools/35.0.0"
+          mkdir -p out
           "$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-          "$BT/apksigner" sign --ks release.keystore --ks-key-alias slice \
-            --ks-pass "pass:${{ steps.key.outputs.pass }}" --out out/Slice.apk aligned.apk
-          "$BT/apksigner" verify out/Slice.apk
+          "$BT/apksigner" sign --ks signing-keys/release.keystore --ks-key-alias slice \\
+            --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out out/slice-release.apk aligned.apk
+          "$BT/apksigner" verify --verbose out/slice-release.apk
+          unset PASS
 
-      - uses: actions/upload-artifact@v4
+      - name: Publish latest GitHub release
+        uses: softprops/action-gh-release@v2
         with:
-          name: Slice-apk
-          path: out/Slice.apk
+          tag_name: V1.2.0
+          name: Slice Android 1.2.0
+          target_commitish: main
+          make_latest: true
+          fail_on_unmatched_files: true
+          body: |
+            Slice Android 1.2.0
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: assetlinks
-          path: out/assetlinks.json
-
-      - uses: actions/upload-artifact@v4
-        if: hashFiles('out/keystore-password.txt') != ''
-        with:
-          name: signing-keys
-          path: |
-            out/release.keystore
-            out/keystore-password.txt
+            - Updated the app to use https://slicesocial.netlify.app/
+            - Updated internal navigation, downloads, and Android App Links.
+          files: out/slice-release.apk
