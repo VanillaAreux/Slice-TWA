@@ -9,9 +9,7 @@ android {
     defaultConfig {
         applicationId = "com.slicetechnologies.slice"
         minSdk = 23
-        // Target 32 while this legacy WebView wrapper is being replaced; Android 14's stricter
-        // MediaProjection foreground-service requirements apply when targeting API 34+.
-        targetSdk = 32
+        targetSdk = 35
         versionCode = 3
         versionName = "1.2.0"
     }
